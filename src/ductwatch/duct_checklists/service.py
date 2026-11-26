@@ -1,9 +1,10 @@
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import replace
 from decimal import Decimal, DecimalException
 from unicodedata import normalize
 
-from .contracts import FIELDS, LIMITS, DuctwatchRecord, Issue, DecodeResult, MeasureIssue
+from .contracts import FIELDS, LIMITS, AmendedSample, DuctwatchRecord, Issue, DecodeResult, MeasureIssue
 from .forms import check_native_history
 
 
@@ -104,14 +105,43 @@ def load_samples(batch, as_of):
         signatures={row.signature() for row in current.values()}
         keep=None if len(signatures)!=1 else min(current,key=lambda p:(current[p].received,p))
         if keep is not None:
-            accepted.append(current[keep])
+            corrected=current[keep]
+            if high>1:
+                replaced=amended_sample(corrected,pending,current)
+                if replaced is not None:
+                    corrected=replace(corrected,amends=replaced)
+            accepted.append(corrected)
         for source, row in pending.items():
             if source==keep:
                 continue
             reason='CONFLICTING_REVISION' if keep is None else 'REPEATED_REVISION' if source in current else 'OLDER_REVISION'
             invalid[source]=Issue(source,ticket,'revision',reason)
-    accepted.sort(key=lambda item:(item.day,item.key))
+    accepted.sort(key=lambda item:(item.routed_day(),item.key))
     return DecodeResult(tuple(accepted),tuple(invalid[i] for i in sorted(invalid)),count)
+
+
+def amended_sample(corrected, pending, current):
+    """The original fitted sample a confirmed correction replaces.
+
+    The correction is anchored to the earliest revision on file for the same
+    ticket — the reading that was actually fitted — so its fold does not drift
+    when later revisions are stacked on top. A reused key with a different
+    workday or zone is a different trolley, never a correction. If the earliest
+    revision is itself ambiguous (several different readings), or no earlier
+    sample exists, the correction is left unlinked and routed on its own
+    timestamps: a first late ticket is not backfilled, and a corrupt base never
+    silently yields a wrong reading.
+    """
+    originals=[row for row in pending.values()
+               if row not in current.values() and row.day==corrected.day and row.cohort==corrected.cohort]
+    if not originals:
+        return None
+    base=min(row.revision for row in originals)
+    roots={row.signature() for row in originals if row.revision==base}
+    if len(roots)!=1:
+        return None
+    predecessor=next(row for row in originals if row.revision==base)
+    return AmendedSample(predecessor.revision,predecessor.received,predecessor.day,predecessor.result_day)
 
 
 def profile_intake(batch):
@@ -122,5 +152,6 @@ def profile_intake(batch):
 
 def preliminary_evidence(batch, limit=8):
     return [{'单号':row.key,'分组':row.cohort, '记录日':row.day,'到达日':row.received,'版次':row.revision,
+             '更正替换': None if row.amends is None else f'版次 {row.amends.revision}',
              '缺测字段':'、'.join(title for field,(title,_,_,_) in FIELDS.items() if getattr(row,field) is None)}
             for row in batch.entries[-limit:]]

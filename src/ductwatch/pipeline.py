@@ -104,7 +104,7 @@ def execute(documents, capacity=12, mode='balanced', *, as_of=96):
     drift = monitor_service.scan_current(baseline, features.live, state.fingerprint)
     coverage = monitor_service.coverage_by_group(features.calibration, features.live)
     allocation = dispatch_service.plan_jobs(checked_live, drift.domain, capacity, mode)
-    closed = audit_service.close_batch(documents, intake, windows, allocation, state.fingerprint, kernel.name, mode)
+    closed = audit_service.close_batch(intake, windows, allocation, state.fingerprint, kernel.name, mode)
     states = dict(closed.totals.states)
     overview = [
         {'label': '当班新风机组', 'value': len(allocation.jobs)},
@@ -123,6 +123,7 @@ def execute(documents, capacity=12, mode='balanced', *, as_of=96):
     features_glance = feature_service.feature_evidence(state) + feature_service.measure_review(features)
     weight_rows = [{'量测': key, '取值': value} for key, value in kernel.evidence]
     ignored = [issue.evidence() for issue in intake.issues]
+    versions = audit_service.sample_versions(intake.entries)
     details = [
         stage_at(0, f'接收 {intake.source_rows} 条，采用 {len(intake.entries)} 条', intake_service.preliminary_evidence(intake), ignored),
         stage_at(1, f'拟合 {len(windows.train)} 条，校准 {len(windows.calibration)} 条，回放 {len(windows.replay)} 条', cohort_service.window_evidence(windows) + cohort_service.readiness_evidence(windows, as_of)),
@@ -131,7 +132,7 @@ def execute(documents, capacity=12, mode='balanced', *, as_of=96):
         stage_at(4, f'{fitted_calibration.method} · {performance.status} · {performance.count} 条回放实绩', calibration_service.calibration_evidence(performance) + [overtime] + sector),
         stage_at(5, f'{drift.status} · {len(drift.domain)} 张单据需外推判读', monitor_service.shift_evidence(drift, coverage) + operating_shift),
         stage_at(6, f'本班占用 {allocation.capacity-allocation.balance} / {allocation.capacity} 个工位单位', dispatch_service.action_evidence(allocation) + dispatch_service.operating_group(checked_live, allocation)),
-        stage_at(7, f'处置凭证 {closed.stamp} · 额度守恒', audit_service.reconciliation_evidence(closed) + field_evidence['执行业务单']),
+        stage_at(7, f'处置凭证 {closed.stamp} · 额度守恒', audit_service.reconciliation_evidence(closed) + audit_service.deferred_evidence(intake) + versions + field_evidence['执行业务单']),
     ]
     details[6]['operating_rows'] = operating_rows
     details[6]['operating_title'] = '标准档复标单'
@@ -151,6 +152,7 @@ def execute(documents, capacity=12, mode='balanced', *, as_of=96):
     overview_report = {'capacity' : capacity, 'mode': mode, 'as_of': as_of, 'sample_hash': closed.batch_hash,
               'policy_hash': closed.policy_hash, 'feature_stamp': state.fingerprint,
               'model': kernel.name, 'run_id': closed.stamp, 'object_name': DISPLAY['object_name'],
+              'sample_versions': versions,
               'unit': DISPLAY['unit'], 'sections': details, 'flow_counts': list(states.items()),
               'measures': {'pressure_pa': ('滤网压差', 'Pa'),
  'fan_pct': ('风机档位', '%'),

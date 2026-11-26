@@ -1,8 +1,8 @@
 from dataclasses import replace
 import pytest
-from ductwatch.hvac_reconciliation.service import check_flow, compare, data_fingerprint, policy_fingerprint
+from ductwatch.hvac_reconciliation.service import check_flow, compare, data_fingerprint, policy_fingerprint, sample_versions
 from ductwatch.hvac_reconciliation.contracts import LedgerCheck
-from ductwatch.pipeline import open_fixture, preview
+from ductwatch.pipeline import execute, open_fixture, preview
 
 
 def test_payload_identity_remains_if_import_order_changes(observation):
@@ -40,3 +40,33 @@ def test_sample_settlement_counts_match_worklist():
 
 def test_repeat_results_are_identical():
     assert preview() == preview()
+
+
+def test_late_correction_replaces_training_reading_but_keeps_old_voucher():
+    dataset = open_fixture()
+    entries = [dict(row) for row in dataset['records']]
+    original = next(row for row in entries if row['key'] == 'AF-1101')
+    correction = {**original, 'revision': 2, 'received': 94,
+                  'pressure_pa': original['pressure_pa'] + 1}
+
+    reissued = execute(entries, as_of=91)
+    with_correction = execute(entries + [correction], as_of=91)
+    # Re-signing the old shift at its original cutoff reproduces the first voucher.
+    assert with_correction['run_id'] == reissued['run_id']
+    assert with_correction['sample_hash'] == reissued['sample_hash']
+
+    # The current shift now trains on the replacement reading, not the retracted one.
+    current = execute(entries + [correction], as_of=96)
+    plain = execute(entries, as_of=96)
+    assert current['feature_stamp'] != plain['feature_stamp']
+    adopted = {row['单号']: row for row in current['sample_versions']}
+    assert adopted['AF-1101']['采用版次'] == 2
+    assert adopted['AF-1101']['替代版次'] == 1 and adopted['AF-1101']['迟到更正']
+
+
+def test_voucher_lists_the_adopted_revision():
+    report = preview()
+    versions = {item['单号']: item for item in report['sample_versions']}
+    assert versions and all('采用版次' in item for item in versions.values())
+    # Every ticket actually dispatched this shift shows a revision on the voucher.
+    assert {row['key'] for row in report['rows']} <= versions.keys()

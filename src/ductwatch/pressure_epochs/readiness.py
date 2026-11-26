@@ -21,9 +21,11 @@ def formation_tail(windows, schedule):
             event = airflow_clock(entry)
             source_map[event].append(entry)
         for plan, touches in sorted(source_map.items()):
-            delays = [row.received-row.day for row in touches]
-            maturation = [row.result_day-row.day for row in touches if row.result_day is not None and stage != 'live']
-            finishes = [row.received if stage=='live' else max(row.received,row.result_day) for row in touches]
+            delays = [row.routed_received()-row.routed_day() for row in touches]
+            maturation = [row.routed_result_day()-row.routed_day() for row in touches
+                          if row.routed_result_day() is not None and stage != 'live']
+            finishes = [row.routed_received() if stage=='live'
+                        else max(row.routed_received(),row.routed_result_day()) for row in touches]
             remaining = [edge-day-1 for day in finishes]
             close_margin = min(remaining)
             urgent = sum(slack < 2 for slack in remaining)

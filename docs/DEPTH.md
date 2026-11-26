@@ -30,3 +30,5 @@ AI/ML · 传统ML · 中型
 | TRAP-44 | 校准样本不足 | 分派前转人工判读并保留原因 | `src/ductwatch/fan_replay/service.py` | `tests/test_fan_replay.py::test_empty_calibration_requires_review` |
 | TRAP-53 | 单条推断与混批 | 复用冻结参数，各条估计完全一致 | `src/ductwatch/flow_subspace/service.py` | `tests/test_flow_subspace.py::test_input_batch_invariance` |
 | TRAP-54 | 特征版本与模型不配对 | 拒绝继续推断并要求重拟合 | `src/ductwatch/flow_subspace/service.py` | `tests/test_flow_subspace.py::test_mismatched_model_input_version_fails` |
+| TRAP-55 | 迟到的确认更正 | 替换原拟合样本并落回原折叠，旧班按原截止日复算凭证不变 | `src/ductwatch/pressure_epochs/service.py`、`src/ductwatch/hvac_reconciliation/service.py` | `tests/test_pressure_epochs.py::test_late_correction_routes_to_the_fold_it_corrects`、`tests/test_hvac_reconciliation.py::test_late_correction_replaces_training_reading_but_keeps_old_voucher` |
+| TRAP-56 | 首次迟到的新单 | 不补入历史窗口，按原到站日隔离 | `src/ductwatch/pressure_epochs/service.py` | `tests/test_pressure_epochs.py::test_late_first_ticket_is_not_backfilled` |

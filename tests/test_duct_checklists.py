@@ -49,3 +49,40 @@ def test_numeric_lower_bound_is_inclusive():
     assert number('4','quantity',4,10,integral=True) == 4
     with pytest.raises(ValueError, match='WHOLE_REQUIRED'):
         number('4.1','quantity',4,10,integral=True)
+
+
+def test_confirmed_correction_links_to_its_predecessor(observation):
+    # A later revision that arrives after the shift cutoff still supersedes the
+    # earlier reading, so the replacement can be routed to the fold it corrects.
+    correction = {**observation, 'revision': 2, 'received': 94,
+                  'pressure_pa': observation['pressure_pa'] + 1}
+    report = load_samples([observation, correction], 96)
+    kept = report.entries[0]
+    assert (kept.revision, kept.amends.revision) == (2, 1)
+    assert [issue.code for issue in report.issues] == ['OLDER_REVISION']
+
+
+def test_same_version_conflict_drops_the_correction_without_fallback(observation):
+    # Same-version corrections disagree: the whole sample goes, not the wrong reading.
+    low = {**observation, 'revision': 2, 'received': 94, 'pressure_pa': observation['pressure_pa'] + 1}
+    high = {**observation, 'revision': 2, 'received': 94, 'pressure_pa': observation['pressure_pa'] + 2}
+    report = load_samples([observation, low, high], 96)
+    assert report.entries == ()
+    assert [issue.code for issue in report.issues] == ['CONFLICTING_REVISION'] * 3
+
+
+def test_identical_repeat_of_a_correction_stays_linked(observation):
+    correction = {**observation, 'revision': 2, 'received': 94,
+                  'pressure_pa': observation['pressure_pa'] + 1}
+    report = load_samples([observation, correction, dict(correction)], 96)
+    assert [(row.revision, row.amends.revision) for row in report.entries] == [(2, 1)]
+    assert [issue.code for issue in report.issues] == ['OLDER_REVISION', 'REPEATED_REVISION']
+
+
+def test_stacked_corrections_anchor_to_the_original(observation):
+    base = {**observation, 'day': 10, 'received': 11, 'result_day': 14, 'revision': 1}
+    second = {**base, 'revision': 2, 'received': 40, 'pressure_pa': base['pressure_pa'] + 1}
+    third = {**base, 'revision': 3, 'received': 94, 'pressure_pa': base['pressure_pa'] + 2}
+    for order in ([base, second, third], [third, base, second], [second, third, base]):
+        report = load_samples(order, 96)
+        assert [(row.revision, row.amends.revision) for row in report.entries] == [(3, 1)]

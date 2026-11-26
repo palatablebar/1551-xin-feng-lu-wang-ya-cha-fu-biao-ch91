@@ -17,6 +17,16 @@ class MeasureIssue(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class AmendedSample:
+    """The earlier revision a confirmed correction supersedes."""
+
+    revision: int
+    received: int
+    day: int
+    result_day: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class DuctwatchRecord:
     key: str
     cohort: str
@@ -32,10 +42,33 @@ class DuctwatchRecord:
     pm_index: float | None
     open_pct: float | None
     since_days: float | None
+    amends: AmendedSample | None = None
 
     def signature(self):
+        # `amends` is intake bookkeeping, not a measurement, so two readings of the
+        # same revision stay comparable only on the measured content.
         return (self.key, self.cohort, self.day, self.revision, self.result_day, self.outcome, self.observed,
                 *(getattr(self, key) for key in FIELDS))
+
+    def routed_day(self):
+        if self.amends is None:
+            return self.day
+        return self.amends.day
+
+    def routed_received(self):
+        # A confirmed correction keeps the arrival time of the sample it replaces,
+        # so it lands in the fold that sample was fitted in.
+        if self.amends is None:
+            return self.received
+        return self.amends.received
+
+    def routed_result_day(self):
+        # The label event of the superseded sample does not move when only the
+        # reading is corrected; a correction without a matured predecessor is
+        # routed on its own timestamps (and stays a late, non-backfilled ticket).
+        if self.amends is None:
+            return self.result_day
+        return self.amends.result_day
 
 
 @dataclass(frozen=True, slots=True)

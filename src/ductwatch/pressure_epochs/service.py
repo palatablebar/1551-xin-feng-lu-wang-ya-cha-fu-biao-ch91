@@ -6,14 +6,18 @@ from .contracts import Chronology, FoldSummary, Span, WindowRule
 
 
 def assign_fold(record, rule):
-    if record.day in rule.live and record.day <= rule.as_of and record.received <= rule.as_of:
+    if record.routed_day() in rule.live and record.routed_day() <= rule.as_of and record.routed_received() <= rule.as_of:
         return 'live', 'OPEN_RUN'
+    # A confirmed correction is judged by the cutoff of the sample it replaces;
+    # its own late arrival cannot push a matured original out of its fold.
+    arrived = record.routed_received()
+    matured = record.routed_result_day()
     for name, span in rule.folds():
-        if record.day not in span:
+        if record.routed_day() not in span:
             continue
-        if record.received >= span.end or record.result_day is None or record.result_day >= span.end:
+        if arrived >= span.end or matured is None or matured >= span.end:
             return None, 'RESULT_NOT_MATURE'
-        if record.result_day < record.day:
+        if matured < record.routed_day():
             return None, 'REVERSED_RESULT_TIME'
         if record.outcome is None:
             return None, 'MISSING_OUTCOME'
@@ -35,7 +39,7 @@ def route_history(records, rule):
             panels[fold].append(record)
     folds = {}
     for name, values in panels.items():
-        folds[name] = tuple(sorted(values, key=lambda item: (item.day, item.key)))
+        folds[name] = tuple(sorted(values, key=lambda item: (item.routed_day(), item.key)))
     return Chronology(**folds, excluded=tuple(sorted(lost)))
 
 
